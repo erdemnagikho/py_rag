@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyrag"
+version = "0.1.0"
+description = "Local RAG with directory-watched ingestion and a swappable vector store"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "python-dotenv>=1.0",
+    "openai>=1.50",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3.6",
+]
+
+[project.scripts]
+pyrag = "pyrag.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyrag"]

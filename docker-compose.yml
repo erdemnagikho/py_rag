@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: pyrag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pyrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pyrag}
+      POSTGRES_DB: ${POSTGRES_DB:-pyrag}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pyrag} -d ${POSTGRES_DB:-pyrag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Weaviate is opt-in. Run it with:
+  #     docker compose --profile weaviate up -d
+  # Set VECTOR_STORE=weaviate in .env to use it.
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.33.2
+    container_name: pyrag-weaviate
+    restart: unless-stopped
+    profiles: [weaviate]
+    ports:
+      - "${WEAVIATE_HTTP_PORT:-8080}:8080"
+      - "${WEAVIATE_GRPC_PORT:-50051}:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: "25"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      # We provide our own vectors (from Ollama). Tell Weaviate not to
+      # try to embed for us and not to load any vectorizer modules.
+      DEFAULT_VECTORIZER_MODULE: "none"
+      ENABLE_MODULES: ""
+      CLUSTER_HOSTNAME: "node1"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+
+volumes:
+  pgdata:
+  weaviate_data:
