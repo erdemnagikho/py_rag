@@ -91,32 +91,89 @@ class PostgresStore(VectorStore):
             self, query_text: str, query_embedding: list[float], k: int        
     ) -> list[SearchHit]:
         conn = self._connect()
+        candidates = max(20, k*4)
+        rrf_k = 60
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("SET LOCAL hnsw.ef_search = 100")
             cur.execute(
                 """
+                WITH semantic AS (
+                    SELECT id, dist,
+                        ROW_NUMBER() OVER (ORDER BY dist) AS rank
+                    FROM (
+                        SELECT c.id, c.embedding <=> %(vec)s::vector AS dist
+                        FROM chunks c
+                        ORDER BY c.embedding <=> %(vec)s::vector
+                        LIMIT %(cand)s
+                    ) s
+                ),
+
+                lexical AS (
+                    SELECT id,
+                        ROW_NUMBER() OVER (ORDER BY score DESC) as rank
+                    FROM (
+                        SELECT c.id, ts_rank(c.content_tsv, q.query) AS score
+                        FROM chunks c,
+                            websearch_to_tsquery('english', %(qtext)s) AS q(query)
+                        WHERE c.content_tsv @@ q.query
+                        ORDER BY ts_rank(c.content_tsv, q.query) DESC
+                        LIMIT %(cand)s
+                    ) l
+                ),
+
+                fused AS (
+                    SELECT id, SUM(1.0 / (%(rrf)s + rank)) AS rrf_score
+                    FROM (
+                        SELECT id, rank FROM semantic
+                        UNION ALL
+                        SELECT id, rank FROM lexical
+                    ) ranks
+                    GROUP BY id
+                )
+
                 SELECT d.source_path,
-                    c.chunk_index,
-                    c.content,
-                    c.metadata,
-                    1 - (c.embedding <=> %(vec)s::vector) AS cosine
-                FROM chunks c
+                       c.chunk_index,
+                       c.content,
+                       c.metadata,
+                       f.rrf_score,
+                       CASE WHEN s.dist IS NOT NULL
+                           THEN 1 - s.dist
+                           ELSE 1 - (c.embedding <=> %(vec)s::vector)
+                       END AS cosine,
+                       s.rank AS sem_rank,
+                       l.rank AS lex_rank
+                FROM fused f
+                JOIN chunks c ON c.id = f.id
                 JOIN documents d ON d.id = c.document_id
-                ORDER BY c.embedding <=> %(vec)s::vector
+                LEFT JOIN semantic s ON s.id = c.id
+                LEFT JOIN lexical l ON l.id = c.id
+                ORDER BY f.rrf_score DESC
                 LIMIT %(k)s
                 """,
-                {"vec": query_embedding, "k": k}
+                {
+                    "vec": query_embedding,
+                    "qtext": query_text,
+                    "cand": candidates,
+                    "rrf": rrf_k,
+                    "k": k,
+                }
             )
-            hits = [
-                SearchHit(
-                    source_path=r["source_path"],
-                    chunk_index=r["chunk_index"],
-                    text=r["content"],
-                    score=float(r["cosine"]),
-                    metadata=dict(r["metadata"] or {})
+            hits = []
+            for r in cur.fetchall():
+                meta = dict(r["metadata"] or {})
+                meta["rrf_score"] = float(r["rrf_score"])
+                meta["semantic_rank"] = r["sem_rank"]
+                meta["lexical_rank"] = r["lex_rank"]
+                hits.append(
+                    SearchHit(
+                        source_path=r["source_path"],
+                        chunk_index=int(r["chunk_index"]),
+                        text=r["content"],
+                        score=float(r["cosine"]),
+                        metadata=meta,
+                    )
                 )
-                for r in cur.fetchall()
-            ]
+                
             conn.commit()
             return hits
 
