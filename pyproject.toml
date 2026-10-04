@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.50",
     "psycopg[binary]>=3.2",
     "pgvector>=0.3.6",
+    "watchdog>=4.0",
 ]
 
 [project.scripts]

@@ -11,7 +11,7 @@ import typer
 
 from .config import load_config
 from .embeddings import Embedder
-from .ingest import Ingestor
+from .ingest import Ingestor, watch
 from .llm import ChatClient
 from .query import build_user_message, initial_messages, retrieve
 from .stores.factory import make_store
@@ -92,6 +92,15 @@ def scan_cmd() -> None:
         for path in sorted(docs.iterdir()):
             if path.is_file():
                 ingestor.ingest_file(path)
+    finally:
+        ingestor.store.close()
+
+@app.command("watch")
+def watch_cmd() -> None:
+    _setup_logging()
+    ingestor = _build_ingestor()
+    try:
+        watch(ingestor)
     finally:
         ingestor.store.close()
 
