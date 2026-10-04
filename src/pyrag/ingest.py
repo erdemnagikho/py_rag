@@ -71,12 +71,18 @@ class Ingestor:
                 index= c.index,
                 text= c.text,
                 embedding= emb,
-                metadata= {},
+                metadata= {"type":"text"},
             )
             for c, emb in zip(chunks, embeddings, strict=True)
         ]
 
-        self.store.upsert_document(source_path, content_hash, stored)
+        self.store.upsert_document(
+            source_path, 
+            content_hash, 
+            stored,
+            metadata={"suffix": path.suffix.lower(), "kind":"text"}
+        )
+
         log.info("Ingested %s (%d chunks)", path.name, len(stored))
         self._move_to_processed(path)
 
