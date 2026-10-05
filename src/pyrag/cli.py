@@ -188,6 +188,17 @@ def chat_cmd(
     finally:
         store.close()
 
+@app.command("serve")
+def serve_cmd(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
+    port: int = typer.Option(8000, "--port", help="Bind port"),
+    reload: bool = typer.Option(False, "--reload", help="Auto-reload on code change"),
+) -> None:
+    _setup_logging()
+    import uvicorn
+    uvicorn.run("pyrag.web:app", host=host, port=port, reload=reload, ws="none")
+
+
 if __name__ == "__main__":
     app()
         

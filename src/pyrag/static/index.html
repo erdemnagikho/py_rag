@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pyrag</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Markdown rendering for assistant replies. `marked` parses;
+       DOMPurify sanitises the resulting HTML so a model output of
+       <script> or onclick="..." can't execute. Both are tiny and load
+       from a CDN with no build step. -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <style>
+        /* Minimal styling for the rendered markdown inside assistant
+       bubbles. Tailwind doesn't ship a typography plugin via the CDN,
+       so we set the few rules we actually need by hand. */
+        .markdown>*:first-child {
+            margin-top: 0;
+        }
+
+        .markdown>*:last-child {
+            margin-bottom: 0;
+        }
+
+        .markdown p {
+            margin: 0.5em 0;
+        }
+
+        .markdown ul,
+        .markdown ol {
+            margin: 0.5em 0;
+            padding-left: 1.5em;
+        }
+
+        .markdown ul {
+            list-style: disc;
+        }
+
+        .markdown ol {
+            list-style: decimal;
+        }
+
+        .markdown li {
+            margin: 0.15em 0;
+        }
+
+        .markdown strong {
+            font-weight: 600;
+        }
+
+        .markdown em {
+            font-style: italic;
+        }
+
+        .markdown code {
+            background: rgb(226 232 240 / 0.7);
+            padding: 0.1em 0.35em;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+        }
+
+        .markdown pre {
+            background: rgb(15 23 42);
+            color: rgb(226 232 240);
+            padding: 0.6em 0.8em;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin: 0.5em 0;
+        }
+
+        .markdown pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+
+        .markdown a {
+            color: rgb(37 99 235);
+            text-decoration: underline;
+        }
+
+        .markdown img {
+            max-width: 100%;
+            max-height: 22rem;
+            border-radius: 0.5rem;
+            margin: 0.5em 0;
+            display: block;
+        }
+
+        .markdown blockquote {
+            border-left: 3px solid rgb(203 213 225);
+            padding-left: 0.75em;
+            color: rgb(71 85 105);
+            margin: 0.5em 0;
+        }
+    </style>
+</head>
+
+<body
+    class="bg-gradient-to-br from-indigo-100 via-slate-100 to-sky-100 text-slate-900 h-screen flex flex-col p-4 sm:p-6 overflow-hidden">
+    <div
+        class="max-w-3xl w-full mx-auto flex-1 min-h-0 flex flex-col bg-white rounded-2xl shadow-xl ring-1 ring-slate-200 overflow-hidden">
+        <header class="shrink-0 px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+            <h1 class="text-lg font-semibold tracking-tight text-slate-800">pyrag</h1>
+        </header>
+
+        <div id="status" class="hidden shrink-0 px-4 py-2 text-sm border-b border-slate-200"></div>
+
+        <main id="transcript" class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4"></main>
+
+        <form id="chat-form" class="shrink-0 border-t border-slate-200 p-3 flex items-center gap-2">
+            <input id="file-input" type="file" accept=".txt,.md,.markdown" class="hidden" />
+
+            <button type="button" id="upload-doc-btn" title="Upload document (.txt, .md)" aria-label="Upload document"
+                class="shrink-0 rounded-lg border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- document icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v12a2 2 0 0 1-2 2Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14 3v5h5" />
+                </svg>
+            </button>
+
+            <button type="button" id="upload-image-btn" title="Upload image" aria-label="Upload image"
+                class="shrink-0 rounded-lg border border-slate-300 bg-white p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- image icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="1.8">
+                    <rect x="3" y="4" width="18" height="16" rx="2" stroke-linejoin="round" />
+                    <circle cx="9" cy="10" r="1.6" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m4 18 5-5 4 4 3-3 4 4" />
+                </svg>
+            </button>
+
+            <input id="message" type="text" autocomplete="off" placeholder="Ask a question…"
+                class="flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button type="submit"
+                class="rounded-lg bg-blue-600 text-white px-4 py-2 font-medium hover:bg-blue-700 disabled:bg-slate-300">Send</button>
+        </form>
+    </div>
+
+    <!-- Image upload modal. Hidden by default; toggled by adding/removing
+       the `hidden` class. `fixed inset-0` covers the viewport; the inner
+       grid centers the card. -->
+    <div id="image-modal" class="hidden fixed inset-0 z-50">
+        <div id="image-modal-backdrop" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"></div>
+        <div class="relative h-full w-full flex items-center justify-center p-4">
+            <div
+                class="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl ring-1 ring-slate-200 overflow-hidden flex flex-col max-h-full">
+                <header
+                    class="shrink-0 px-5 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+                    <h2 class="text-base font-semibold tracking-tight text-slate-800">Upload image</h2>
+                    <button type="button" id="image-modal-close" aria-label="Close"
+                        class="p-1 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6 6 18" />
+                        </svg>
+                    </button>
+                </header>
+
+                <form id="image-modal-form" class="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Image</label>
+                        <input id="image-modal-file" type="file" accept="image/*" required
+                            class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-slate-100 file:text-slate-700 file:font-medium hover:file:bg-slate-200" />
+                        <img id="image-modal-preview" alt=""
+                            class="hidden mt-3 max-h-48 rounded-lg border border-slate-200 object-contain" />
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label for="image-modal-description"
+                                class="block text-sm font-medium text-slate-700">Description</label>
+                            <button type="button" id="image-modal-generate" disabled
+                                class="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:text-slate-400 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none"
+                                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M12 3v3M12 18v3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M3 12h3M18 12h3M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+                                </svg>
+                                <span id="image-modal-generate-label">Generate with vision model</span>
+                            </button>
+                        </div>
+                        <textarea id="image-modal-description" rows="6"
+                            placeholder="Describe what's in the image, or click 'Generate with vision model' above…"
+                            class="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        <p id="image-modal-error" class="hidden mt-1 text-xs text-red-700"></p>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-2 pt-2">
+                        <button type="button" id="image-modal-cancel"
+                            class="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 font-medium hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500">Cancel</button>
+                        <button type="submit" id="image-modal-submit"
+                            class="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">Upload</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Raw history (no system prompt, no context-wrapping) — same shape
+        // as the CLI's raw_turns. The server reconstructs the full message
+        // list each request, so we only need to remember user/assistant text.
+        const history = [];
+
+        const transcript = document.getElementById("transcript");
+        const form = document.getElementById("chat-form");
+        const input = document.getElementById("message");
+        const fileInput = document.getElementById("file-input");
+        const uploadDocBtn = document.getElementById("upload-doc-btn");
+        const uploadImageBtn = document.getElementById("upload-image-btn");
+        const statusEl = document.getElementById("status");
+
+        // Image-upload modal elements. Grouped together so the modal logic
+        // below reads as one block.
+        const imageModal = document.getElementById("image-modal");
+        const imageModalBackdrop = document.getElementById("image-modal-backdrop");
+        const imageModalClose = document.getElementById("image-modal-close");
+        const imageModalCancel = document.getElementById("image-modal-cancel");
+        const imageModalForm = document.getElementById("image-modal-form");
+        const imageModalFile = document.getElementById("image-modal-file");
+        const imageModalPreview = document.getElementById("image-modal-preview");
+        const imageModalDescription = document.getElementById("image-modal-description");
+        const imageModalGenerate = document.getElementById("image-modal-generate");
+        const imageModalGenerateLabel = document.getElementById("image-modal-generate-label");
+        const imageModalSubmit = document.getElementById("image-modal-submit");
+        const imageModalError = document.getElementById("image-modal-error");
+
+        function showStatus(text, kind = "info") {
+            statusEl.textContent = text;
+            statusEl.className =
+                "px-4 py-2 text-sm border-b border-slate-200 " +
+                (kind === "error"
+                    ? "bg-red-50 text-red-800"
+                    : kind === "success"
+                        ? "bg-green-50 text-green-800"
+                        : "bg-slate-100 text-slate-700");
+        }
+
+        function hideStatus() {
+            statusEl.className = "hidden";
+        }
+
+        function bubble(role) {
+            const wrap = document.createElement("div");
+            wrap.className = role === "user" ? "flex justify-end" : "flex justify-start";
+            const b = document.createElement("div");
+            // User bubbles render as raw text (whitespace-pre-wrap preserves
+            // their formatting). Assistant bubbles render rendered markdown,
+            // where block elements like <p> handle their own spacing — so we
+            // drop whitespace-pre-wrap and apply our `.markdown` styles.
+            b.className =
+                "max-w-[85%] rounded-2xl px-4 py-2 shadow-sm " +
+                (role === "user"
+                    ? "bg-blue-600 text-white whitespace-pre-wrap"
+                    : "bg-slate-100 text-slate-800 border border-slate-200 markdown");
+            wrap.appendChild(b);
+            transcript.appendChild(wrap);
+            transcript.scrollTop = transcript.scrollHeight;
+            return b;
+        }
+
+        // marked + DOMPurify pipeline. We re-render the full answer on every
+        // streamed token; for a few KB of text that's cheap, and it means
+        // partial markdown (e.g. an unclosed `![alt](http://...`) just
+        // renders as text until the closing paren arrives.
+        function renderMarkdown(text) {
+            const cleaned = stripUntrustedImages(text);
+            const html = marked.parse(cleaned, { breaks: true, gfm: true });
+            return DOMPurify.sanitize(html);
+        }
+
+        // Small chat models occasionally emit image syntax (`![Kappa]`,
+        // `![Zombie](something)`) even when no image URL was supplied in the
+        // retrieved context — they over-generalise the "embed images" rule
+        // in the system prompt. The system prompt forbids this, but the
+        // model is the model. Defence in depth: before handing the markdown
+        // to `marked`, strip any image syntax whose URL isn't a real
+        // `/files/...` URL served by this app. Anything else (empty URL,
+        // reference-style, external host) gets removed entirely.
+        function stripUntrustedImages(text) {
+            // Inline form: ![alt](url) and ![alt](url "title"). Keep iff the
+            // URL begins with /files/ (the only path this app actually serves
+            // ingested images from).
+            text = text.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, (match, alt, url) => {
+                const trimmed = url.trim().split(/\s+/)[0]; // ignore optional title
+                return trimmed.startsWith("/files/") ? match : "";
+            });
+            // Anything left that still starts with `![` is either a reference-
+            // style image (`![alt][ref]`) or a stray `![alt]` with no URL.
+            // We don't support reference-style images and a bare `![alt]`
+            // would otherwise render as a broken <img>. Drop both. The
+            // negative lookahead `(?!\()` makes sure we don't accidentally
+            // eat the `![alt]` part of a valid inline image we already
+            // preserved in the step above.
+            text = text.replace(/!\[[^\]]*\](\[[^\]]*\])?(?!\()/g, "");
+            return text;
+        }
+
+        function sourcesBlock(hits) {
+            if (!hits || !hits.length) return null;
+            const wrap = document.createElement("div");
+            wrap.className = "flex justify-start";
+            const box = document.createElement("div");
+            box.className =
+                "max-w-[85%] text-xs text-slate-500 border-l-2 border-slate-300 pl-3";
+            const lines = hits.map(
+                (h) => `${h.filename} (chunk ${h.chunk_index}, score ${h.score.toFixed(2)})`
+            );
+            box.textContent = "sources:\n" + lines.map((l) => "  • " + l).join("\n");
+            wrap.appendChild(box);
+            transcript.appendChild(wrap);
+            transcript.scrollTop = transcript.scrollHeight;
+            return box;
+        }
+
+        // Three bouncing dots. The negative `animation-delay` values stagger
+        // the bounce — each dot starts mid-cycle, so they're permanently out
+        // of phase and you get a wave instead of three synchronized dots.
+        // No leading whitespace in the template — the bubble uses
+        // `whitespace-pre-wrap`, which would otherwise render the indentation
+        // as visible spaces and stretch the bubble to max width.
+        const THINKING_HTML =
+            '<span class="inline-flex items-center gap-1 py-1">' +
+            '<span class="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>' +
+            '<span class="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>' +
+            '<span class="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>' +
+            '</span>';
+
+        async function send(message) {
+            const userBubble = bubble("user");
+            userBubble.textContent = message;
+            const assistantBubble = bubble("assistant");
+            assistantBubble.innerHTML = THINKING_HTML;
+            let firstToken = true;
+            let answer = "";
+
+            const res = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message, history }),
+            });
+            if (!res.ok || !res.body) {
+                assistantBubble.textContent = `error: ${res.status}`;
+                return;
+            }
+
+            // Parse SSE by hand — frames are separated by a blank line, and
+            // each frame has `event:` and `data:` lines we care about.
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = "";
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buf.indexOf("\n\n")) !== -1) {
+                    const frame = buf.slice(0, idx);
+                    buf = buf.slice(idx + 2);
+                    let event = "message";
+                    let data = "";
+                    for (const line of frame.split("\n")) {
+                        if (line.startsWith("event:")) event = line.slice(6).trim();
+                        else if (line.startsWith("data:")) data += line.slice(5).trim();
+                    }
+                    const payload = data ? JSON.parse(data) : {};
+                    if (event === "token") {
+                        if (firstToken) {
+                            assistantBubble.innerHTML = "";
+                            firstToken = false;
+                        }
+                        answer += payload.text;
+                        assistantBubble.innerHTML = renderMarkdown(answer);
+                        transcript.scrollTop = transcript.scrollHeight;
+                    } else if (event === "rewrite") {
+                        // Surface a dim note so the user can see when the rewriter
+                        // changed their query — mirrors the CLI's "(searching for:
+                        // ...)" line.
+                        const note = document.createElement("div");
+                        note.className = "text-xs text-slate-400 italic px-1";
+                        note.textContent = `(searching for: ${payload.query})`;
+                        transcript.insertBefore(note, assistantBubble.parentElement);
+                    } else if (event === "sources") {
+                        sourcesBlock(payload.hits);
+                    } else if (event === "error") {
+                        assistantBubble.textContent = `error: ${payload.message}`;
+                    }
+                }
+            }
+            history.push({ role: "user", content: message });
+            history.push({ role: "assistant", content: answer });
+        }
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const msg = input.value.trim();
+            if (!msg) return;
+            input.value = "";
+            input.disabled = true;
+            try {
+                await send(msg);
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        });
+
+        // The document button forwards clicks to its hidden <input> for a
+        // native file picker. The image button opens the upload modal
+        // instead — image uploads need a description field too, so a plain
+        // picker isn't enough.
+        uploadDocBtn.addEventListener("click", () => fileInput.click());
+        uploadImageBtn.addEventListener("click", openImageModal);
+
+        fileInput.addEventListener("change", async () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            showStatus(`Ingesting ${file.name}…`);
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const res = await fetch("/api/upload", { method: "POST", body: fd });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showStatus(`Upload failed: ${body.detail || res.status}`, "error");
+                } else {
+                    showStatus(`Ingested ${body.filename} (${body.bytes} bytes)`, "success");
+                    setTimeout(hideStatus, 4000);
+                }
+            } catch (err) {
+                showStatus(`Upload failed: ${err.message}`, "error");
+            } finally {
+                fileInput.value = "";
+            }
+        });
+
+        // ----- Image upload modal --------------------------------------------
+        //
+        // Flow:
+        //   1. User clicks the image button → openImageModal()
+        //   2. User picks a file → preview shows, Generate button enables
+        //   3. (Optional) User clicks Generate → POST /api/describe-image,
+        //      the returned text lands in the textarea (user can edit it)
+        //   4. User submits → POST /api/upload-image with file + description
+        //
+        // The modal owns its own state (selected file, in-flight generate
+        // call) and resets it on open/close so reopening starts clean.
+
+        let imageModalPreviewUrl = null; // tracked so we can revokeObjectURL
+
+        function openImageModal() {
+            // Reset state every time we open. `value=""` on file input is the
+            // only reliable way to clear a previously-picked file in all
+            // browsers (the `files` list is read-only).
+            imageModalFile.value = "";
+            imageModalDescription.value = "";
+            imageModalPreview.classList.add("hidden");
+            imageModalPreview.removeAttribute("src");
+            if (imageModalPreviewUrl) {
+                URL.revokeObjectURL(imageModalPreviewUrl);
+                imageModalPreviewUrl = null;
+            }
+            imageModalGenerate.disabled = true;
+            imageModalSubmit.disabled = false;
+            imageModalGenerateLabel.textContent = "Generate with vision model";
+            hideModalError();
+            imageModal.classList.remove("hidden");
+        }
+
+        function closeImageModal() {
+            imageModal.classList.add("hidden");
+            if (imageModalPreviewUrl) {
+                URL.revokeObjectURL(imageModalPreviewUrl);
+                imageModalPreviewUrl = null;
+            }
+        }
+
+        function showModalError(text) {
+            imageModalError.textContent = text;
+            imageModalError.classList.remove("hidden");
+        }
+
+        function hideModalError() {
+            imageModalError.classList.add("hidden");
+            imageModalError.textContent = "";
+        }
+
+        imageModalClose.addEventListener("click", closeImageModal);
+        imageModalCancel.addEventListener("click", closeImageModal);
+        imageModalBackdrop.addEventListener("click", closeImageModal);
+        // ESC closes the modal — only when the modal is actually open, to
+        // avoid hijacking ESC for the rest of the page.
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && !imageModal.classList.contains("hidden")) {
+                closeImageModal();
+            }
+        });
+
+        imageModalFile.addEventListener("change", () => {
+            hideModalError();
+            const file = imageModalFile.files[0];
+            if (imageModalPreviewUrl) {
+                URL.revokeObjectURL(imageModalPreviewUrl);
+                imageModalPreviewUrl = null;
+            }
+            if (!file) {
+                imageModalPreview.classList.add("hidden");
+                imageModalPreview.removeAttribute("src");
+                imageModalGenerate.disabled = true;
+                return;
+            }
+            imageModalPreviewUrl = URL.createObjectURL(file);
+            imageModalPreview.src = imageModalPreviewUrl;
+            imageModalPreview.classList.remove("hidden");
+            imageModalGenerate.disabled = false;
+        });
+
+        imageModalGenerate.addEventListener("click", async () => {
+            const file = imageModalFile.files[0];
+            if (!file) return;
+            hideModalError();
+            imageModalGenerate.disabled = true;
+            imageModalSubmit.disabled = true;
+            imageModalGenerateLabel.textContent = "Generating…";
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const res = await fetch("/api/describe-image", { method: "POST", body: fd });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    showModalError(`Description failed: ${body.detail || res.status}`);
+                } else {
+                    imageModalDescription.value = body.description || "";
+                    imageModalDescription.focus();
+                }
+            } catch (err) {
+                showModalError(`Description failed: ${err.message}`);
+            } finally {
+                imageModalGenerate.disabled = false;
+                imageModalSubmit.disabled = false;
+                imageModalGenerateLabel.textContent = "Generate with vision model";
+            }
+        });
+
+        imageModalForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const file = imageModalFile.files[0];
+            if (!file) {
+                showModalError("Pick an image first.");
+                return;
+            }
+            const description = imageModalDescription.value.trim();
+            if (!description) {
+                showModalError("Add a description, or click 'Generate with vision model'.");
+                return;
+            }
+            hideModalError();
+            imageModalSubmit.disabled = true;
+            imageModalGenerate.disabled = true;
+            showStatus(`Uploading ${file.name}…`);
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("description", description);
+            try {
+                const res = await fetch("/api/upload-image", { method: "POST", body: fd });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    // Keep the modal open on failure so the user can edit and retry.
+                    showModalError(`Upload failed: ${body.detail || res.status}`);
+                    showStatus(`Image upload failed: ${body.detail || res.status}`, "error");
+                } else {
+                    showStatus(`Ingested ${body.filename}`, "success");
+                    setTimeout(hideStatus, 4000);
+                    closeImageModal();
+                }
+            } catch (err) {
+                showModalError(`Upload failed: ${err.message}`);
+                showStatus(`Image upload failed: ${err.message}`, "error");
+            } finally {
+                imageModalSubmit.disabled = false;
+                imageModalGenerate.disabled = !imageModalFile.files[0];
+            }
+        });
+
+        input.focus();
+    </script>
+</body>
+
+</html>
