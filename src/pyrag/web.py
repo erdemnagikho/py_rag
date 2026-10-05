@@ -15,7 +15,7 @@ from .config import load_config
 from .embeddings import Embedder
 from .ingest import TEXT_SUFFIXES, Ingestor
 from .llm import ChatClient, Message
-from .query import build_user_message, initial_messages, retrieve
+from .query import build_user_message, initial_messages, retrieve, rewrite_query
 from .stores.factory import make_store
 
 log = logging.getLogger(__name__)
@@ -72,8 +72,20 @@ def create_app() -> FastAPI:
 
         def event_stream():
             try:
+                raw_history: list[Message] = [
+                    {"role": t.role, "content": t.content} for t in req.history
+                ]
+
+                search_query = (
+                    rewrite_query(chat, raw_history, question)
+                    if raw_history else question
+                )
+
+                if search_query != question:
+                    yield _sse("rewrite", {"query": search_query})
+
                 with lock:
-                    ctx = retrieve(store, embedder, question, top_k)
+                    ctx = retrieve(store, embedder, search_query, top_k)
 
                 raw_history: list[Message] = [
                     {"role": t.role, "content": t.content} for t in req.history

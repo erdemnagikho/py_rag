@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .embeddings import Embedder
 from .stores.base import SearchHit, VectorStore
-from .llm import Message
+from .llm import ChatClient, Message
 from .stores.base import SearchHit, VectorStore
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -56,4 +56,35 @@ def build_user_message(question: str, ctx: RetrievedContext) -> str:
 def initial_messages(system_prompt: str | None) -> list[Message]:
     base = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
     return [{"role": "system", "content": base}]
+
+REWRITE_SYSTEM = (
+    "You rewrite the user's latest message into a standalone search query "
+    "that captures everything the search index needs to know. USe the prior "
+    "conversation to resolve pronouns and implicit references. "
+    "Return ONLY the rewritten query -- no preamble, no quotes, no explanation. "
+    "If the latest message is already a complete standalone question, return it unchanged."
+)
+
+def rewrite_query(
+        chat: ChatClient, history: list[Message], question: str
+) -> str:
+    if not history:
+        return question
+    
+    messages: list[Message] = [
+        {"role": "system", "content": REWRITE_SYSTEM},
+        *history,
+        {"role": "user", "content": question},
+    ]
+
+    rewritten = "".join(chat.stream(messages)).strip()
+
+    if (
+        len(rewritten) >= 2
+        and rewritten[0] == rewritten[-1]
+        and rewritten[0] in {'"', "'"}
+    ):
+        rewritten = rewritten[1:-1].strip()
+
+    return rewritten or question
     
