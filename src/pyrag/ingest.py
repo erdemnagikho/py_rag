@@ -19,8 +19,10 @@ from .stores.base import StoredChunk, VectorStore
 log = logging.getLogger(__name__)
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown"}
+PDF_SUFFIXES = {".pdf"}
+DOCUMENT_SUFFIXES = TEXT_SUFFIXES | PDF_SUFFIXES
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-SUPPORTED_SUFFIXES = TEXT_SUFFIXES | IMAGE_SUFFIXES
+SUPPORTED_SUFFIXES = DOCUMENT_SUFFIXES | IMAGE_SUFFIXES
 
 IMAGE_DESCRIBE_PROMPT = (
     "Describe this image in detail for a search index. Include the main "
@@ -73,6 +75,8 @@ class Ingestor:
             self._ingest_image(
                 path, source_path, content_hash, description=description
             )
+        elif suffix in PDF_SUFFIXES:
+            self._ingest_pdf(path, source_path, content_hash)
         else:
             self._ingest_text(path, data, source_path, content_hash)
 
@@ -84,6 +88,49 @@ class Ingestor:
             content_hash: str
     ) -> None:
         text = data.decode("utf-8", errors="replace")
+        chunks = chunk_text(text, self.config.chunk_size, self.config.chunk_overlap)
+        if not chunks:
+            log.warning("No content to ingest in %s", path.name)
+            self._move_to_processed(path)
+            return
+
+        log.info("Embedding %d chunks from %s", len(chunks), path.name)
+        embeddings = self.embedder.embed([c.text for c in chunks])
+
+        stored = [
+            StoredChunk(
+                index = c.index,
+                text = c.text,
+                embedding = emb,
+                metadata = {"type":"text"},
+            )
+            for c, emb in zip(chunks, embeddings, strict=True)
+        ]
+
+        self.store.upsert_document(
+            source_path,
+            content_hash,
+            stored,
+            metadata={"suffix": path.suffix.lower(), "kind":"text"}
+        )
+        log.info("Ingested %s (%d chunks)", path.name, len(stored))
+        self._move_to_processed(path)
+
+    def _ingest_pdf(
+            self,
+            path: Path,
+            source_path: str,
+            content_hash: str
+    ) -> None:
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(path)
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as exc:
+            log.warning("Failed to extract text from PDF %s: %s", path.name, exc)
+            self._move_to_processed(path)
+            return
+
         chunks = chunk_text(text, self.config.chunk_size, self.config.chunk_overlap)
         if not chunks:
             log.warning("No content to ingest in %s", path.name)

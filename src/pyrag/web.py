@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from .config import load_config
 from .embeddings import Embedder
-from .ingest import IMAGE_DESCRIBE_PROMPT, IMAGE_SUFFIXES, TEXT_SUFFIXES, Ingestor
+from .ingest import IMAGE_DESCRIBE_PROMPT, IMAGE_SUFFIXES, DOCUMENT_SUFFIXES, Ingestor
 from .llm import ChatClient, Message
 from .query import build_user_message, initial_messages, retrieve, rewrite_query
 from .stores.factory import make_store
@@ -172,7 +172,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/upload")
     def upload(file: UploadFile) -> dict[str, Any]:
-        return _handle_upload(file, TEXT_SUFFIXES, "document")
+        return _handle_upload(file, DOCUMENT_SUFFIXES, "document")
 
     @app.post("/api/upload-image")
     def upload_image(
