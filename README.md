@@ -79,6 +79,12 @@ docker compose up -d
 ```
 *(If you want to use Weaviate instead, update `VECTOR_STORE=weaviate` in `.env` and run `docker compose --profile weaviate up -d`)*
 
+**6. Create the documents directory:**
+PyRAG looks for your files in the `documents` folder by default. Create it before ingesting:
+```bash
+mkdir documents
+```
+
 ---
 
 ## 💻 Usage
