@@ -12,12 +12,22 @@ from watchdog.observers import Observer
 
 from .chunking import chunk_text
 from .config import Config
-from . embeddings import Embedder
+from .embeddings import Embedder
+from .llm import ChatClient
 from .stores.base import StoredChunk, VectorStore
 
 log = logging.getLogger(__name__)
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+SUPPORTED_SUFFIXES = TEXT_SUFFIXES | IMAGE_SUFFIXES
+
+IMAGE_DESCRIBE_PROMPT = (
+    "Describe this image in detail for a search index. Include the main "
+    "subject, any creatures, people, or objects present, the setting, "
+    "mood, colors, and any distinctive visual features. Be factual and "
+    "concisse -- a short paragraph is enough. Do not editorialise."
+)
 
 def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -31,14 +41,16 @@ class Ingestor:
             config: Config,
             store: VectorStore,
             embedder: Embedder,
+            chat: ChatClient | None = None,
     ) -> None:
         self.config = config
         self.store = store
         self.embedder = embedder
+        self.chat = chat
 
-    def ingest_file(self, path: Path) -> None:
+    def ingest_file(self, path: Path, description: str | None = None) -> None:
         suffix = path.suffix.lower()
-        if suffix not in TEXT_SUFFIXES:
+        if suffix not in SUPPORTED_SUFFIXES:
             log.info("Skipping %s, unsupported suffix %s", path, suffix)
             return
 
@@ -56,6 +68,21 @@ class Ingestor:
             self._move_to_processed(path)
             return
 
+        # Dispatch on suffix
+        if suffix in IMAGE_SUFFIXES:
+            self._ingest_image(
+                path, source_path, content_hash, description=description
+            )
+        else:
+            self._ingest_text(path, data, source_path, content_hash)
+
+    def _ingest_text(
+            self,
+            path: Path,
+            data: bytes,
+            source_path: str,
+            content_hash: str
+    ) -> None:
         text = data.decode("utf-8", errors="replace")
         chunks = chunk_text(text, self.config.chunk_size, self.config.chunk_overlap)
         if not chunks:
@@ -68,24 +95,66 @@ class Ingestor:
 
         stored = [
             StoredChunk(
-                index= c.index,
-                text= c.text,
-                embedding= emb,
-                metadata= {"type":"text"},
+                index = c.index,
+                text = c.text,
+                embedding = emb,
+                metadata = {"type":"text"},
             )
             for c, emb in zip(chunks, embeddings, strict=True)
         ]
 
         self.store.upsert_document(
-            source_path, 
-            content_hash, 
+            source_path,
+            content_hash,
             stored,
             metadata={"suffix": path.suffix.lower(), "kind":"text"}
         )
-
         log.info("Ingested %s (%d chunks)", path.name, len(stored))
         self._move_to_processed(path)
 
+    def _ingest_image(
+            self,
+            path: Path,
+            source_path: str,
+            content_hash: str,
+            description: str | None = None
+    ) -> None:
+        if description is None:
+            if self.chat is None:
+                raise RuntimeError(
+                    "Image ingestion requires a ChatClient or an explicit "
+                    "description; construct the Ingestor with chat=ChatClient(...)"
+                )
+            log.info(
+                "Describing image %s with %s...", path.name, self.config.vision_model
+            )
+            description = self.chat.describe(
+                self.config.vision_model, IMAGE_DESCRIBE_PROMPT, path
+            )
+        description = description.strip() if description else ""
+        if not description:
+            log.warning("Empty description for %s; falling back to filename", path.name)
+            description = f"Image file: {path.name}"
+
+        chunk_body = f"[Image: {path.name}]\n{description}"
+        [embedding] = self.embedder.embed([chunk_body])
+        
+        stored = [
+            StoredChunk(
+                index=0,
+                text=chunk_body,
+                embedding=embedding,
+                metadata={"type":"image"}
+            )
+        ]
+        self.store.upsert_document(
+            source_path,
+            content_hash,
+            stored,
+            metadata={"suffix": path.suffix.lower(), "kind": "image"}
+        )
+        log.info("Ingested %s (%d chunks)", path.name, len(stored))
+        self._move_to_processed(path)
 
     def _move_to_processed(self, path: Path) -> None:
         processed = self.config.processed_dir
@@ -108,7 +177,7 @@ class _DebounceHandler(FileSystemEventHandler):
     
     def _schedule(self, raw_path: Path) -> None:
         path = Path(raw_path)
-        if path.suffix.lower() not in TEXT_SUFFIXES:
+        if path.suffix.lower() not in SUPPORTED_SUFFIXES:
             return
         
         if _is_under(path, self._processed_dir):

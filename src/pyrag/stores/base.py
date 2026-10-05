@@ -12,6 +12,7 @@ class StoredChunk:
     embedding: list[float]
     metadata: dict[str, Any]
 
+
 @dataclass
 class SearchHit:
     source_path: str
@@ -21,6 +22,7 @@ class SearchHit:
     metadata: dict[str, Any]
     document_metadata: dict[str, Any] = field(default_factory=dict)
     ingested_at: datetime | None = None
+
 
 class VectorStore(ABC):
     @abstractmethod
@@ -38,17 +40,19 @@ class VectorStore(ABC):
         """Replace any existing chunks for `source_path` with the given ones."""
 
     @abstractmethod
+    def delete_document(self, source_path: str) -> None:
+        """Remove a document and all of its chunks from the store."""
+
+    @abstractmethod
     def search(self, query_text: str, query_embedding: list[float], k: int) -> list[SearchHit]:
         """Return top-k chunks for the query."""
 
     @abstractmethod
     def close(self) -> None:
         """Release any underlying resources."""
-    
+
     def __enter__(self) -> "VectorStore":
         return self
-
+    
     def __exit__(self, *exc: object) -> None:
         self.close()
-        
-        
