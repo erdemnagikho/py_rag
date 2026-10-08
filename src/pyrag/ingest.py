@@ -10,7 +10,7 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from .chunking import chunk_text
+from .semantic_chunking import chunk_text
 from .config import Config
 from .embeddings import Embedder
 from .llm import ChatClient
